@@ -1,21 +1,21 @@
 #!/usr/bin/python
-import os
 import subprocess
 import shlex
-import sys
 import argparse
 
 parser = argparse.ArgumentParser(description="""
   copies data to/from your pod
 
   requires that rsync is installed on the remote host, but not running as a daemon
-  and assumes root privileges in the pod. 
+  and assumes root privileges in the pod.
 """)
 parser.add_argument('source', nargs="+", help="source files")
 parser.add_argument('dest', nargs=1, help="destination file or directory")
 parser.add_argument('--rsyncopts', dest='rsyncopts',
                     help="options passed to rsync")
-parser.set_defaults(rsyncopts="")
+parser.set_defaults(rsyncopts="-vrP")
+parser.add_argument('-n', dest='namespace')
+parser.add_argument('-c', dest='container')
 parser.add_argument('--force', dest='force', action='store_true',
                     help="overwrite an existing /etc/rsyncd.conf")
 parser.set_defaults(force=False)
@@ -42,7 +42,7 @@ def shell(cmd, sh=True):
 # sets up rsync by copying a hard coded /etc/rsyncd.conf to the pod
 
 
-def setup_remote(pod):
+def setup_remote(namespace, pod, container):
     RSYNCD_CONF = """
 lock file = /var/run/rsync.lock
 log file = /var/log/rsyncd.log
@@ -57,27 +57,27 @@ pid file = /var/run/rsyncd.pid
     list = yes
 """
     try:
-        shell("kubectl exec {} -- sh -c \"which rsync\"".format(pod))
+        shell("kubectl exec {0} {1} {2} -- sh -c \"which rsync\"".format(namespace, pod, container))
     except:
-        raise BaseException("remote host {} cannot run rsync".format(pod))
+        raise BaseException("remote host {0} {1} cannot run rsync".format(namespace, pod, container))
     if not args.force:
         conf = shell(
-            "kubectl exec {} -- sh -c \"if [ -f /etc/rsyncd.conf ]; then cat /etc/rsyncd.conf ; fi\"".format(pod))
+            "kubectl exec {0} {1} {2} -- sh -c \"if [ -f /etc/rsyncd.conf ]; then cat /etc/rsyncd.conf ; fi\"".format(namespace, pod, container))
         if conf != "" and conf.strip() != RSYNCD_CONF.strip():
             raise BaseException(
                 "remote rsyncd.conf exists, not overwriting without --force")
-    cmd = "kubectl exec {} -- sh -c 'cat > /etc/rsyncd.conf'".format(pod)
+    cmd = "kubectl exec {0} {1} {2} -- sh -c 'cat > /etc/rsyncd.conf'".format(namespace, pod, container)
     debug(cmd)
     sub = subprocess.Popen(
-        "kubectl exec -i {} -- sh -c 'cat > /etc/rsyncd.conf'".format(pod), shell=True, stdin=subprocess.PIPE)
+        "kubectl exec -i {0} {1} {2} -- sh -c 'cat > /etc/rsyncd.conf'".format(namespace, pod, container), shell=True, stdin=subprocess.PIPE)
     stdout, stderr = sub.communicate(RSYNCD_CONF)
     debug("rsyncd.conf created")
     return True
 
 
-def cleanup_remote(pod):
+def cleanup_remote(namespace, pod, container):
     debug("deleting rsyncd.conf")
-    # return shell("kubectl exec {} -- rm /etc/rsyncd.conf".format(pod))
+    # return shell("kubectl exec {0} {1} {2} -- rm /etc/rsyncd.conf".format(namespace, pod, container))
 
 
 def parse_path(path):
@@ -93,8 +93,16 @@ def parse_path(path):
 def copy(src, dest):
     rsync_url = "rsync://--/root_module/"
     src_host = args.source_host
-    dest_host, dest_path = parse_path(dest)
     src_paths = []
+    if args.namespace != None:
+      namespace="-n " + args.namespace + " "
+    else:
+      namespace=""
+    if args.container != None:
+      container=" -c " + args.container + " "
+    else:
+      container=""
+    dest_host, dest_path = parse_path(dest)
     for f in src:
         h, p = parse_path(f)
         if src_host == None:
@@ -115,10 +123,10 @@ def copy(src, dest):
         if dest_host is not None:
             raise BaseException("Source and destination cannot be remote")
         destination = dest_path
-    setup_remote(pod)
-    print(shell("rsync --blocking-io -Rza " + args.rsyncopts + " -e 'kubectl exec -i " +
+    setup_remote(namespace, pod, container)
+    print(shell("rsync --blocking-io -Rza " + args.rsyncopts + " -e 'kubectl exec -i " + namespace + container +
                 pod + "' " + source + " " + destination, sh=False).strip())
-    cleanup_remote(pod)
+    cleanup_remote(namespace, pod, container)
     return
 
 debug(args)
