@@ -7,7 +7,7 @@ parser = argparse.ArgumentParser(description="""
   copies data to/from your pod
 
   requires that rsync is installed on the remote host, but not running as a daemon
-  and assumes root privileges in the pod.
+  and assumes root privileges in the pod. 
 """)
 parser.add_argument('source', nargs="+", help="source files")
 parser.add_argument('dest', nargs=1, help="destination file or directory")
